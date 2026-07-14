@@ -2,11 +2,11 @@
 
 A modular Rust command-line client for interacting with Bitcoin Core through its JSON-RPC API.
 
-> **Status:** Milestones 1 and 2 are complete. Configuration loading, the reusable JSON-RPC transport, Clap command routing, `blockchain-info`, and the wallet commands are implemented. Generic RPC execution is currently an explicit placeholder.
+> **Status:** All required blockchain, wallet, address, and generic JSON-RPC commands are implemented and verified against a Bitcoin Core Regtest node managed by Polar.
 
 ## Overview
 
-`bitcoin-cli-rs` will connect to a local Bitcoin Core node running on Regtest through [Polar](https://lightningpolar.com/). It will provide friendly commands for common blockchain and wallet operations while retaining access to arbitrary Bitcoin Core RPC methods.
+`bitcoin-cli-rs` connects to a local Bitcoin Core node running on Regtest through [Polar](https://lightningpolar.com/). It provides friendly commands for common blockchain and wallet operations while retaining access to arbitrary Bitcoin Core RPC methods.
 
 The project is being built for the Rust for Bitcoin Program 2.0 technical assessment, but its structure and naming are intended to support continued development after the assessment.
 
@@ -18,7 +18,7 @@ The project is being built for the Rust for Bitcoin Program 2.0 technical assess
 | `wallet-info` | Display the wallet name, trusted, unconfirmed, and immature balances, and transaction count. | Implemented |
 | `balance` | Print the wallet's trusted balance. | Implemented |
 | `new-address` | Generate and print a new Bech32 receiving address. | Implemented |
-| `rpc <method> [params...]` | Execute an arbitrary Bitcoin Core JSON-RPC method. | Placeholder |
+| `rpc <method> [params...]` | Execute an arbitrary Bitcoin Core JSON-RPC method with dynamically parsed parameters. | Implemented |
 
 Current working examples:
 
@@ -27,14 +27,12 @@ cargo run -- blockchain-info
 cargo run -- wallet-info
 cargo run -- balance
 cargo run -- new-address
-```
-
-Planned examples for the next milestone:
-
-```bash
 cargo run -- rpc getblockcount
-cargo run -- rpc getblockhash 20
+cargo run -- rpc getblockhash 200
+cargo run -- rpc getblock 305f60a3fa9324e846bc26b87056b4b6c69dc72d8c222404a9421eda442631c8
 ```
+
+Generic RPC parameters are positional. Each parameter is parsed as JSON when possible, so values such as `200`, `true`, `null`, `[1,2]`, and JSON objects retain their types. Bare hashes, addresses, and other non-JSON values are treated as strings.
 
 ## Architecture
 
@@ -53,7 +51,8 @@ bitcoin-cli-rs/
 │       ├── mod.rs            # Command dispatch and shared command helpers
 │       ├── blockchain.rs     # Blockchain command output
 │       ├── wallet.rs         # Wallet information and balance output
-│       └── address.rs        # New-address output
+│       ├── address.rs        # New-address output
+│       └── rpc.rs            # Generic RPC execution and parameter parsing
 ├── Cargo.toml                # Package metadata and dependencies
 ├── config.example.toml       # TOML configuration template
 └── .env.example              # Environment-variable template
@@ -69,55 +68,106 @@ Terminal command
     -> Polar Regtest node
 ```
 
-## Prerequisites
+## Installation
 
-- Rust 1.85 or newer.
-- Cargo.
-- [Docker](https://www.docker.com/products/docker-desktop/) running locally.
-- [Polar](https://lightningpolar.com/) with a started Bitcoin Core Regtest node.
+Install the following prerequisites:
 
-Polar manages the local Bitcoin Core container, so a separate Bitcoin Core desktop installation is not required for the intended setup.
+- Rust 1.85 or newer and Cargo, preferably through [rustup](https://rustup.rs/).
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+- [Polar](https://lightningpolar.com/).
 
-### Create the Regtest wallet
-
-Bitcoin Core provides wallet functionality, but a newly created Polar node does not automatically create a wallet. After starting the network, open the Bitcoin Core node terminal in Polar and create the wallet used by this project:
+Clone and build the application:
 
 ```bash
-bitcoin-cli createwallet "bitcoin-cli-rs-wallet"
+git clone https://github.com/Kingscliq/bitcoin-cli-rs.git
+cd bitcoin-cli-rs
+cargo build
 ```
 
-Confirm that the wallet exists and is loaded:
+## Polar and Bitcoin Core setup
 
-```bash
-bitcoin-cli -rpcwallet=bitcoin-cli-rs-wallet getwalletinfo
-```
+Polar runs Bitcoin Core in an isolated Docker container and configures it for Regtest. A separate Bitcoin Core desktop installation is not required.
 
-Blockchain-only commands such as `blockchain-info` do not require a wallet. The `wallet-info`, `balance`, and `new-address` commands require the wallet configured below to exist and be loaded.
+### 1. Install Polar on Apple Silicon macOS
 
-### macOS Gatekeeper troubleshooting
+1. Start Docker Desktop.
+2. Download the ARM64 DMG from the official [Polar releases](https://github.com/jamaljsr/polar/releases) page. The ARM64 asset is the appropriate build for Apple Silicon Macs.
+3. Drag `Polar.app` into `/Applications` and open it.
 
-Polar's macOS build may be blocked because it is not notarized by Apple. First try the standard macOS flow under **System Settings -> Privacy & Security -> Open Anyway**.
+macOS may initially block Polar with a Gatekeeper message:
 
-On an Apple Silicon Mac, download the ARM64 DMG from the official [Polar releases](https://github.com/jamaljsr/polar/releases) page. Before bypassing quarantine, verify that the installer checksum matches the digest published with that release. For Polar v4.0.0:
+![macOS Gatekeeper blocking Polar](docs/images/polar-macos-gatekeeper.png)
 
-```bash
-shasum -a 256 ~/Downloads/polar-mac-arm64-v4.0.0.dmg
-```
-
-Expected SHA-256 for the official v4.0.0 ARM64 asset:
-
-```text
-bfc315f71f710666f7efdf0c8f9be92d32ab63e957db07f3bbfd1462c77b5295
-```
-
-If the checksum matches but macOS does not provide an **Open Anyway** option, clearing Polar's extended attributes allowed the application to open in the tested environment:
+First try **System Settings -> Privacy & Security -> Open Anyway**. If the option is unavailable, the following commands allowed the trusted GitHub-release build to open in the tested environment:
 
 ```bash
 xattr -cr /Applications/Polar.app
 open /Applications/Polar.app
 ```
 
-`xattr -cr` recursively removes extended attributes, including the quarantine attribute used by Gatekeeper. Only run it for an application downloaded from a source you trust and whose checksum you have verified; do not use it as a general Gatekeeper bypass.
+`xattr -cr` removes extended attributes, including the quarantine attribute. Only use it for an application downloaded from a source you trust; do not use it as a general Gatekeeper bypass.
+
+### 2. Create the Regtest network
+
+In Polar:
+
+1. Select **Create Network**.
+2. Name the network `bitcoin-cli-rs`.
+3. Set **Bitcoin Core** to `1`.
+4. Set LND, Core Lightning, Eclair, Taproot Assets, and Terminal to `0`; they are not required by this assessment.
+5. Select **Create Network**.
+
+![Creating a Polar network with one Bitcoin Core node](docs/images/polar-create-network.png)
+
+### 3. Start the network
+
+Start the network and wait while Docker downloads `polarlightning/bitcoind` on the first run:
+
+![Polar downloading and starting the Bitcoin Core image](docs/images/polar-network-starting.png)
+
+The network is ready when Polar displays **Started** and the Bitcoin Core node has a green status indicator:
+
+![Started Polar Bitcoin Core Regtest node](docs/images/polar-node-started.png)
+
+### 4. Obtain the RPC connection details
+
+Select the Bitcoin Core node, then open its **Connect** tab. Copy these values into the application configuration:
+
+- **RPC Host** -> `rpc_url` or `BITCOIN_RPC_URL`
+- **Username** -> `BITCOIN_RPC_USER`
+- **Password** -> `BITCOIN_RPC_PASSWORD`
+
+The first Polar node commonly exposes RPC on `http://127.0.0.1:18443`, but use the value displayed by your own network. Do not publish screenshots containing the username or password.
+
+### 5. Create the Regtest wallet
+
+A new Bitcoin Core node provides wallet functionality but does not automatically create a wallet. Open the node's **Actions** tab and select **Launch** under Terminal:
+
+![Polar Bitcoin Core Actions tab and terminal launcher](docs/images/polar-node-actions.png)
+
+Create and verify the wallet:
+
+```bash
+bitcoin-cli createwallet "bitcoin-cli-rs-wallet"
+bitcoin-cli -rpcwallet=bitcoin-cli-rs-wallet getwalletinfo
+```
+
+Blockchain-only commands work without a wallet. `wallet-info`, `balance`, and `new-address` require the configured wallet to exist and be loaded.
+
+### 6. Verify the node and application
+
+Inside the Polar terminal:
+
+```bash
+bitcoin-cli getblockchaininfo
+```
+
+From the project directory in your normal terminal:
+
+```bash
+cargo run -- blockchain-info
+cargo run -- wallet-info
+```
 
 ## Configuration
 
@@ -204,9 +254,9 @@ With the Polar Regtest network running:
 ```text
 $ cargo run -- blockchain-info
 Chain:                 regtest
-Blocks:                1
-Headers:               1
-Best block hash:       337e012a20f4e1d013bd5fc25d1e63750a92fc71c4753a91da3800f54580e18a
+Blocks:                201
+Headers:               201
+Best block hash:       79030f99133d9e69237099a189fcb7aa26e02077d51b89268f314d326e5610ac
 Difficulty:            0.00000000046565423739069247
 Verification progress: 100.00%
 Initial block download: false
@@ -220,13 +270,13 @@ Wallet command examples:
 ```text
 $ cargo run -- wallet-info
 Wallet:              bitcoin-cli-rs-wallet
-Trusted balance:     0.0 BTC
+Trusted balance:     5000.0 BTC
 Unconfirmed balance: 0.0 BTC
-Immature balance:    0.0 BTC
-Transactions:        0
+Immature balance:    3700.0 BTC
+Transactions:        200
 
 $ cargo run -- balance
-0.0 BTC
+5000.0 BTC
 
 $ cargo run -- new-address
 bcrt1qja0mtkccr8ynwdrkwxk7gpzgljrgmxwyy6a73w
@@ -234,11 +284,35 @@ bcrt1qja0mtkccr8ynwdrkwxk7gpzgljrgmxwyy6a73w
 
 Wallet balances and newly generated Regtest addresses will differ between environments. Regtest addresses and coins have no mainnet value.
 
+Generic RPC examples:
+
+```text
+$ cargo run -- rpc getblockcount
+201
+
+$ cargo run -- rpc getblockhash 200
+"305f60a3fa9324e846bc26b87056b4b6c69dc72d8c222404a9421eda442631c8"
+
+$ cargo run -- rpc getblock 305f60a3fa9324e846bc26b87056b4b6c69dc72d8c222404a9421eda442631c8
+{
+  "confirmations": 2,
+  "hash": "305f60a3fa9324e846bc26b87056b4b6c69dc72d8c222404a9421eda442631c8",
+  "height": 200,
+  "nTx": 1,
+  "nextblockhash": "79030f99133d9e69237099a189fcb7aa26e02077d51b89268f314d326e5610ac",
+  "size": 250,
+  "versionHex": "30000000",
+  "weight": 892
+}
+```
+
+The `getblock` example above is shortened to its most relevant fields for readability. The CLI prints the complete JSON object returned by Bitcoin Core.
+
 ## Error-handling approach
 
 - The RPC module exposes structured errors using `thiserror`.
 - The CLI command layer adds user-facing context using `anyhow`.
-- Connection failures, authentication failures, invalid methods or parameters, and missing wallets must produce clear messages without panicking.
+- Connection failures, authentication failures, invalid methods or parameters, and missing wallets produce clear messages without panicking.
 - If the configured wallet does not exist or is not loaded, wallet commands will identify the wallet by name and explain how to create or load it. They will exit with a non-zero status instead of panicking.
 
 ## Security
@@ -256,11 +330,11 @@ Wallet balances and newly generated Regtest addresses will differ between enviro
 - [x] Implement the reusable JSON-RPC client.
 - [x] Implement and verify `blockchain-info` against Polar.
 - [x] Implement and verify the wallet-related named commands.
-- [ ] Implement dynamic generic RPC parameters.
+- [x] Implement dynamic generic RPC parameters.
 - [x] Add focused unit tests.
 - [ ] Add automated integration tests.
-- [ ] Verify all commands against a Polar Regtest node.
-- [x] Add real, safely redacted terminal output for `blockchain-info`.
+- [x] Verify all required commands against a Polar Regtest node.
+- [x] Add real, safely redacted terminal output for every required command.
 
 ## Assumptions
 

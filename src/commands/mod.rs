@@ -1,8 +1,9 @@
 mod address;
 mod blockchain;
+mod rpc;
 mod wallet;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use crate::{cli::Command, config::AppConfig, error::RpcError, rpc::BitcoinRpcClient};
 
@@ -12,14 +13,7 @@ pub fn execute(command: Command, client: &BitcoinRpcClient, config: &AppConfig) 
         Command::WalletInfo => wallet::run_info(client, &config.wallet),
         Command::Balance => wallet::run_balance(client, &config.wallet),
         Command::NewAddress => address::run(client, &config.wallet),
-        Command::Rpc { method, params } => {
-            let _ = params;
-            tracing::warn!(
-                rpc_method = method,
-                "generic RPC command is not implemented"
-            );
-            bail!("`rpc {method}` is defined but not implemented in this milestone")
-        }
+        Command::Rpc { method, params } => rpc::run(client, method, params),
     }
 }
 

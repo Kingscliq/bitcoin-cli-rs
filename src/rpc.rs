@@ -104,7 +104,7 @@ impl BitcoinRpcClient {
             debug!(rpc_method = method, %status, "Bitcoin Core returned a non-success HTTP status");
         }
 
-        match response.json::<JsonRpcResponse<T>>() {
+        match response.json::<JsonRpcResponse>() {
             Ok(envelope) => envelope.into_result(),
             Err(_) if !status.is_success() => Err(RpcError::HttpStatus(status)),
             Err(error) => Err(RpcError::InvalidResponse(error)),
@@ -143,13 +143,16 @@ struct JsonRpcRequest<'a> {
 }
 
 #[derive(Debug, Deserialize)]
-struct JsonRpcResponse<T> {
-    result: Option<T>,
+struct JsonRpcResponse {
+    result: Value,
     error: Option<JsonRpcError>,
 }
 
-impl<T> JsonRpcResponse<T> {
-    fn into_result(self) -> Result<T, RpcError> {
+impl JsonRpcResponse {
+    fn into_result<T>(self) -> Result<T, RpcError>
+    where
+        T: DeserializeOwned,
+    {
         if let Some(error) = self.error {
             return Err(RpcError::BitcoinCore {
                 code: error.code,
@@ -158,7 +161,7 @@ impl<T> JsonRpcResponse<T> {
             });
         }
 
-        self.result.ok_or(RpcError::MissingResult)
+        serde_json::from_value(self.result).map_err(RpcError::InvalidResult)
     }
 }
 
@@ -226,8 +229,8 @@ mod tests {
 
     #[test]
     fn converts_json_rpc_error_to_typed_error() {
-        let response = JsonRpcResponse::<Value> {
-            result: None,
+        let response = JsonRpcResponse {
+            result: Value::Null,
             error: Some(JsonRpcError {
                 code: -18,
                 message: "Requested wallet does not exist or is not loaded".to_owned(),
@@ -235,8 +238,22 @@ mod tests {
             }),
         };
 
-        let error = response.into_result().expect_err("response should fail");
+        let error = response
+            .into_result::<Value>()
+            .expect_err("response should fail");
         assert!(matches!(error, RpcError::BitcoinCore { code: -18, .. }));
+    }
+
+    #[test]
+    fn accepts_null_as_a_successful_generic_result() {
+        let response = JsonRpcResponse {
+            result: Value::Null,
+            error: None,
+        };
+
+        let result: Value = response.into_result().expect("null is a valid JSON result");
+
+        assert_eq!(result, Value::Null);
     }
 
     #[test]

@@ -19,6 +19,9 @@ pub enum RpcError {
     #[error("Bitcoin Core returned an invalid JSON-RPC response: {0}")]
     InvalidResponse(reqwest::Error),
 
+    #[error("Bitcoin Core returned a result with an unexpected shape: {0}")]
+    InvalidResult(serde_json::Error),
+
     #[error("Bitcoin Core RPC error {code}: {message}")]
     BitcoinCore {
         code: i64,
@@ -28,9 +31,6 @@ pub enum RpcError {
 
     #[error("wallet `{wallet}` does not exist or is not loaded: {message}")]
     WalletUnavailable { wallet: String, message: String },
-
-    #[error("Bitcoin Core returned neither a result nor an error")]
-    MissingResult,
 
     #[error("the configured RPC URL cannot be used as a base URL")]
     InvalidBaseUrl,
