@@ -48,6 +48,7 @@ bitcoin-cli-rs/
 │   ├── rpc.rs                # JSON-RPC transport, methods, and models
 │   ├── config.rs             # TOML, environment, and CLI configuration
 │   ├── error.rs              # Typed RPC errors
+│   ├── logger.rs             # Structured tracing setup
 │   └── commands/
 │       ├── mod.rs            # Command dispatch and shared command helpers
 │       ├── blockchain.rs     # Blockchain command output
@@ -161,8 +162,8 @@ The executable initializes `tracing-subscriber` once from `main.rs`. Application
 Logging defaults to `warn`. Set `RUST_LOG` to increase verbosity:
 
 ```bash
-RUST_LOG=bitcoin_rpc_cli=info cargo run -- wallet-info
-RUST_LOG=bitcoin_rpc_cli=debug,bitcoin_core_rpc=debug cargo run -- blockchain-info
+RUST_LOG=bitcoin_cli_rs=info cargo run -- wallet-info
+RUST_LOG=bitcoin_cli_rs=debug cargo run -- blockchain-info
 ```
 
 RPC credentials and RPC parameter values are never logged.
