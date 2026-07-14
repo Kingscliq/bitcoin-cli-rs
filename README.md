@@ -2,7 +2,7 @@
 
 A modular Rust command-line client for interacting with Bitcoin Core through its JSON-RPC API.
 
-> **Status:** Early development. The Cargo workspace is configured, but the Bitcoin Core commands described below are not implemented yet.
+> **Status:** Milestones 1 and 2 are complete. Configuration loading, the reusable JSON-RPC transport, Clap command routing, `blockchain-info`, and the wallet commands are implemented. Generic RPC execution is currently an explicit placeholder.
 
 ## Overview
 
@@ -10,38 +10,50 @@ A modular Rust command-line client for interacting with Bitcoin Core through its
 
 The project is being built for the Rust for Bitcoin Program 2.0 technical assessment, but its structure and naming are intended to support continued development after the assessment.
 
-## Planned commands
+## Commands
 
-| Command | Purpose |
-| --- | --- |
-| `blockchain-info` | Display the chain, block and header counts, difficulty, and verification progress. |
-| `wallet-info` | Display the wallet name, trusted and unconfirmed balances, and transaction count. |
-| `balance` | Print the wallet's trusted balance. |
-| `new-address` | Generate and print a new receiving address. |
-| `rpc <method> [params...]` | Execute an arbitrary Bitcoin Core JSON-RPC method. |
+| Command | Purpose | Status |
+| --- | --- | --- |
+| `blockchain-info` | Display the chain, block and header counts, difficulty, and verification progress. | Implemented |
+| `wallet-info` | Display the wallet name, trusted, unconfirmed, and immature balances, and transaction count. | Implemented |
+| `balance` | Print the wallet's trusted balance. | Implemented |
+| `new-address` | Generate and print a new Bech32 receiving address. | Implemented |
+| `rpc <method> [params...]` | Execute an arbitrary Bitcoin Core JSON-RPC method. | Placeholder |
 
-Planned examples:
+Current working examples:
 
 ```bash
 cargo run -- blockchain-info
 cargo run -- wallet-info
 cargo run -- balance
 cargo run -- new-address
+```
+
+Planned examples for the next milestone:
+
+```bash
 cargo run -- rpc getblockcount
 cargo run -- rpc getblockhash 20
 ```
 
 ## Architecture
 
-This repository is a Cargo workspace with a clear boundary between the executable application and the reusable Bitcoin Core integration:
+This repository is a single Cargo package organized into focused Rust modules:
 
 ```text
 bitcoin-cli-rs/
-├── bin/
-│   └── bitcoin-rpc-cli/      # CLI parsing, configuration, commands, and output
-├── crates/
-│   └── bitcoin-core-rpc/     # JSON-RPC transport, models, and typed errors
-├── Cargo.toml                # Workspace configuration and shared dependencies
+├── src/
+│   ├── main.rs               # Executable entry point and logger setup
+│   ├── cli.rs                # Clap arguments and subcommands
+│   ├── rpc.rs                # JSON-RPC transport, methods, and models
+│   ├── config.rs             # TOML, environment, and CLI configuration
+│   ├── error.rs              # Typed RPC errors
+│   └── commands/
+│       ├── mod.rs            # Command dispatch and shared command helpers
+│       ├── blockchain.rs     # Blockchain command output
+│       ├── wallet.rs         # Wallet information and balance output
+│       └── address.rs        # New-address output
+├── Cargo.toml                # Package metadata and dependencies
 ├── config.example.toml       # TOML configuration template
 └── .env.example              # Environment-variable template
 ```
@@ -50,8 +62,8 @@ The intended request flow is:
 
 ```text
 Terminal command
-    -> bitcoin-rpc-cli
-    -> bitcoin-core-rpc
+    -> bitcoin-cli-rs
+    -> rpc module
     -> Bitcoin Core JSON-RPC
     -> Polar Regtest node
 ```
@@ -108,7 +120,7 @@ open /Applications/Polar.app
 
 ## Configuration
 
-The application is intended to support a local TOML file with environment-variable overrides.
+The application supports a local TOML file with environment-variable overrides.
 
 Copy the provided templates:
 
@@ -140,7 +152,24 @@ CLI flags -> environment variables -> config.toml -> built-in defaults
 
 Obtain the RPC URL, username, and password from the connection details for the Bitcoin Core node inside Polar. Never commit real RPC credentials. Both `.env` and `config.toml` are ignored by Git.
 
-## Build the workspace
+The application validates that credentials are present, the timeout is greater than zero, and the RPC URL uses HTTP or HTTPS before attempting a request. Passwords are not included in command output or debug representations.
+
+## Logging
+
+The executable initializes `tracing-subscriber` once from `main.rs`. Application and RPC modules emit structured events using `tracing`. Logs are written to stderr so stdout remains suitable for command results and shell scripts.
+
+Logging defaults to `warn`. Set `RUST_LOG` to increase verbosity:
+
+```bash
+RUST_LOG=bitcoin_rpc_cli=info cargo run -- wallet-info
+RUST_LOG=bitcoin_rpc_cli=debug,bitcoin_core_rpc=debug cargo run -- blockchain-info
+```
+
+RPC credentials and RPC parameter values are never logged.
+
+`main.rs` is the only executable entry point. Every other file under `src/` is a Rust module compiled into the same executable.
+
+## Build the application
 
 From the repository root:
 
@@ -148,13 +177,13 @@ From the repository root:
 cargo build
 ```
 
-Check every workspace member:
+Check the package:
 
 ```bash
-cargo check --workspace
+cargo check
 ```
 
-The CLI is the workspace's default member, so root-level `cargo run -- ...` commands will target `bitcoin-rpc-cli` without requiring `-p bitcoin-rpc-cli`.
+Root-level `cargo run -- ...` commands target the `bitcoin-cli-rs` executable.
 
 ## Development checks
 
@@ -162,15 +191,52 @@ Before submitting changes, run:
 
 ```bash
 cargo fmt --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
 cargo build
 ```
 
+## Example output
+
+With the Polar Regtest network running:
+
+```text
+$ cargo run -- blockchain-info
+Chain:                 regtest
+Blocks:                1
+Headers:               1
+Best block hash:       337e012a20f4e1d013bd5fc25d1e63750a92fc71c4753a91da3800f54580e18a
+Difficulty:            0.00000000046565423739069247
+Verification progress: 100.00%
+Initial block download: false
+Pruned:                false
+```
+
+Block height and hashes will differ as blocks are generated in each user's Regtest network.
+
+Wallet command examples:
+
+```text
+$ cargo run -- wallet-info
+Wallet:              bitcoin-cli-rs-wallet
+Trusted balance:     0.0 BTC
+Unconfirmed balance: 0.0 BTC
+Immature balance:    0.0 BTC
+Transactions:        0
+
+$ cargo run -- balance
+0.0 BTC
+
+$ cargo run -- new-address
+bcrt1qja0mtkccr8ynwdrkwxk7gpzgljrgmxwyy6a73w
+```
+
+Wallet balances and newly generated Regtest addresses will differ between environments. Regtest addresses and coins have no mainnet value.
+
 ## Error-handling approach
 
-- The reusable `bitcoin-core-rpc` library will expose structured errors using `thiserror`.
-- The `bitcoin-rpc-cli` application will add user-facing context using `anyhow`.
+- The RPC module exposes structured errors using `thiserror`.
+- The CLI command layer adds user-facing context using `anyhow`.
 - Connection failures, authentication failures, invalid methods or parameters, and missing wallets must produce clear messages without panicking.
 - If the configured wallet does not exist or is not loaded, wallet commands will identify the wallet by name and explain how to create or load it. They will exit with a non-zero status instead of panicking.
 
@@ -182,16 +248,18 @@ cargo build
 
 ## Implementation roadmap
 
-- [x] Create the Cargo workspace.
-- [x] Separate the CLI binary and RPC client library.
+- [x] Create the Cargo package and module structure.
+- [x] Separate CLI, RPC, configuration, errors, and command concerns.
 - [x] Add safe configuration templates.
-- [ ] Implement configuration loading and precedence.
-- [ ] Implement the reusable JSON-RPC client.
-- [ ] Implement the required named commands.
+- [x] Implement configuration loading and precedence.
+- [x] Implement the reusable JSON-RPC client.
+- [x] Implement and verify `blockchain-info` against Polar.
+- [x] Implement and verify the wallet-related named commands.
 - [ ] Implement dynamic generic RPC parameters.
-- [ ] Add focused unit and integration tests.
+- [x] Add focused unit tests.
+- [ ] Add automated integration tests.
 - [ ] Verify all commands against a Polar Regtest node.
-- [ ] Add real, safely redacted terminal output.
+- [x] Add real, safely redacted terminal output for `blockchain-info`.
 
 ## Assumptions
 
