@@ -1,4 +1,4 @@
-# bitcoin-cli-rs
+# Bitcoin-cli-rs
 
 A modular Rust command-line client for interacting with Bitcoin Core through its JSON-RPC API.
 
