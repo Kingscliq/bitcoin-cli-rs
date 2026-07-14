@@ -1,6 +1,5 @@
 # Non-sensitive defaults can be copied to config.toml.
 # Prefer environment variables for the RPC username and password.
 rpc_url = "http://127.0.0.1:18443"
-wallet = "assessment-wallet"
+wallet = "bitcoin-cli-rs-wallet"
 timeout_seconds = 30
-

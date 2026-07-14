@@ -65,6 +65,47 @@ Terminal command
 
 Polar manages the local Bitcoin Core container, so a separate Bitcoin Core desktop installation is not required for the intended setup.
 
+### Create the Regtest wallet
+
+Bitcoin Core provides wallet functionality, but a newly created Polar node does not automatically create a wallet. After starting the network, open the Bitcoin Core node terminal in Polar and create the wallet used by this project:
+
+```bash
+bitcoin-cli createwallet "bitcoin-cli-rs-wallet"
+```
+
+Confirm that the wallet exists and is loaded:
+
+```bash
+bitcoin-cli -rpcwallet=bitcoin-cli-rs-wallet getwalletinfo
+```
+
+Blockchain-only commands such as `blockchain-info` do not require a wallet. The `wallet-info`, `balance`, and `new-address` commands require the wallet configured below to exist and be loaded.
+
+### macOS Gatekeeper troubleshooting
+
+Polar's macOS build may be blocked because it is not notarized by Apple. First try the standard macOS flow under **System Settings -> Privacy & Security -> Open Anyway**.
+
+On an Apple Silicon Mac, download the ARM64 DMG from the official [Polar releases](https://github.com/jamaljsr/polar/releases) page. Before bypassing quarantine, verify that the installer checksum matches the digest published with that release. For Polar v4.0.0:
+
+```bash
+shasum -a 256 ~/Downloads/polar-mac-arm64-v4.0.0.dmg
+```
+
+Expected SHA-256 for the official v4.0.0 ARM64 asset:
+
+```text
+bfc315f71f710666f7efdf0c8f9be92d32ab63e957db07f3bbfd1462c77b5295
+```
+
+If the checksum matches but macOS does not provide an **Open Anyway** option, clearing Polar's extended attributes allowed the application to open in the tested environment:
+
+```bash
+xattr -cr /Applications/Polar.app
+open /Applications/Polar.app
+```
+
+`xattr -cr` recursively removes extended attributes, including the quarantine attribute used by Gatekeeper. Only run it for an application downloaded from a source you trust and whose checksum you have verified; do not use it as a general Gatekeeper bypass.
+
 ## Configuration
 
 The application is intended to support a local TOML file with environment-variable overrides.
@@ -80,7 +121,7 @@ Example non-sensitive TOML configuration:
 
 ```toml
 rpc_url = "http://127.0.0.1:18443"
-wallet = "assessment-wallet"
+wallet = "bitcoin-cli-rs-wallet"
 timeout_seconds = 30
 ```
 
@@ -131,6 +172,7 @@ cargo build
 - The reusable `bitcoin-core-rpc` library will expose structured errors using `thiserror`.
 - The `bitcoin-rpc-cli` application will add user-facing context using `anyhow`.
 - Connection failures, authentication failures, invalid methods or parameters, and missing wallets must produce clear messages without panicking.
+- If the configured wallet does not exist or is not loaded, wallet commands will identify the wallet by name and explain how to create or load it. They will exit with a non-zero status instead of panicking.
 
 ## Security
 
